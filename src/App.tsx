@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MAX_SAMPLES, useSerial, type Sample } from './useSerial'
+import { MAX_SAMPLES, useReadings, type Sample } from './useReadings'
 
 const ACCENT = '#FF8A3D'
 const IS_MOTION_DETECTED = false
@@ -162,7 +162,7 @@ function LiveChart({ samples }: { samples: Sample[] }) {
 
   return (
     <div className="chart-wrap">
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="최근 100개 시리얼 값 선 그래프">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="최근 100개 센서 값 선 그래프">
         {[max, (max + min) / 2, min].map(v => (
           <g key={v}>
             <line className="grid" x1={pad.left} x2={width - pad.right} y1={y(v)} y2={y(v)} />
@@ -171,7 +171,7 @@ function LiveChart({ samples }: { samples: Sample[] }) {
         ))}
         {samples.length === 0 && (
           <text className="axis" x={width / 2} y={height / 2} textAnchor="middle">
-            「시리얼 연결」 후 값이 들어오면 여기에 표시됩니다.
+            센서 값이 들어오면 여기에 표시됩니다.
           </text>
         )}
         {samples.length > 1 && <polyline className="live-line" points={points} />}
@@ -218,28 +218,18 @@ function SectionHead({ index, title, note, right }: { index: string; title: stri
 
 export default function App() {
   const [range, setRange] = useState<Range>('1H')
-  const serial = useSerial()
-  const last = serial.samples[serial.samples.length - 1]
-  const detected = serial.connected && last ? last.value > 0 : IS_MOTION_DETECTED
+  const readings = useReadings()
+  const last = readings.samples[readings.samples.length - 1]
+  const detected = last ? last.value > 0 : IS_MOTION_DETECTED
 
   return (
     <main>
       <header className="hero">
         <div className="topline">
           <p className="kicker">PIR 모션 센서 · 실시간 모니터링</p>
-          <div className="serial-bar">
-            {serial.supported ? (
-              <button
-                className={`serial-btn ${serial.connected ? 'connected' : ''}`}
-                onClick={serial.connected ? serial.disconnect : serial.connect}
-              >
-                {serial.connected ? '연결 해제' : '시리얼 연결'}
-              </button>
-            ) : (
-              <span className="serial-error">이 브라우저는 Web Serial을 지원하지 않습니다 (Chrome/Edge 사용)</span>
-            )}
-            <span className="online"><i className={serial.connected ? '' : 'off'} /> {serial.connected ? '센서 연결됨' : '연결 안 됨'}</span>
-          </div>
+          <span className="online">
+            <i className={readings.live ? '' : 'off'} /> {readings.live ? '실시간 구독 중' : '연결 안 됨'}
+          </span>
         </div>
         <h1>공간의 움직임을<br /><span>실시간으로 감지하다</span></h1>
         <p>PIR-01 센서의 움직임 감지 여부와 발생 기록을 한눈에 확인합니다. 현재 화면은 디지털 HIGH·LOW 예시 데이터로 구성되어 있습니다.</p>
@@ -257,9 +247,9 @@ export default function App() {
           <div className="reading-foot">
             <span><i className={`pulse ${detected ? 'detected' : ''}`} /> {detected ? '움직임 감지 중' : '대기 중'}</span>
             <span>
-              {serial.connected && last
+              {last
                 ? `수신값 ${last.value} · ${new Date(last.time).toLocaleTimeString('ko-KR', { hour12: false })}`
-                : '방금 전 업데이트'}
+                : '데이터 없음'}
             </span>
           </div>
         </article>
@@ -277,16 +267,16 @@ export default function App() {
         </div>
       </section>
 
-      {serial.error && <p className="serial-error-box">시리얼 오류: {serial.error}</p>}
-      {serial.dbError && <p className="serial-error-box">DB 오류: {serial.dbError}</p>}
+      {readings.error && <p className="serial-error-box">DB 오류: {readings.error}</p>}
+      {!readings.enabled && <p className="serial-error-box">.env의 Supabase 설정을 찾지 못했습니다.</p>}
 
       <section className="card">
         <SectionHead
-          index="LIVE · 시리얼 수신"
-          title="실시간 시리얼 값"
-          note={`아두이노에서 한 줄씩 들어오는 값 중 최근 ${MAX_SAMPLES}개를 표시합니다. ${serial.dbEnabled ? 'Supabase readings 테이블에 저장되며, 새로고침하면 저장된 최근 값을 다시 불러옵니다.' : 'Supabase 설정이 없어 저장되지 않습니다.'}`}
+          index="LIVE · 센서 값"
+          title="실시간 센서 값"
+          note={`Supabase readings 테이블의 최근 ${MAX_SAMPLES}개 값입니다. 새 행이 들어오면 Realtime으로 바로 갱신됩니다.`}
         />
-        <LiveChart samples={serial.samples} />
+        <LiveChart samples={readings.samples} />
       </section>
 
       <section className="card">
