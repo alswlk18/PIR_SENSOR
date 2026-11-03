@@ -1,76 +1,12 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { MAX_SAMPLES, useReadings, type Sample } from './useReadings'
+import {
+  ago, buildRangeData, clockSec, formatDuration, recentEvents, startOfToday, summarize,
+  type Range, type RangeData,
+} from './analytics'
 
 const ACCENT = '#FF8A3D'
 const IS_MOTION_DETECTED = false
-
-type Range = '1H' | '6H' | '24H'
-type MotionReading = { time: string; t: number; value: 0 | 1 }
-type RangeData = { duration: number; readings: MotionReading[]; ticks: { time: string; t: number }[] }
-
-const rangeData: Record<Range, RangeData> = {
-  '1H': {
-    duration: 55,
-    readings: [
-      { time: '14:00', t: 0, value: 0 },
-      { time: '14:05', t: 5, value: 1 },
-      { time: '14:08', t: 8, value: 0 },
-      { time: '14:31', t: 31, value: 1 },
-      { time: '14:33', t: 33, value: 0 },
-      { time: '14:48', t: 48, value: 1 },
-      { time: '14:50', t: 50, value: 0 },
-      { time: '14:55', t: 55, value: 0 },
-    ],
-    ticks: [
-      { time: '14:00', t: 0 }, { time: '14:10', t: 10 }, { time: '14:20', t: 20 },
-      { time: '14:30', t: 30 }, { time: '14:40', t: 40 }, { time: '14:50', t: 50 },
-      { time: '14:55', t: 55 },
-    ],
-  },
-  '6H': {
-    duration: 360,
-    readings: [
-      { time: '09:00', t: 0, value: 0 }, { time: '09:42', t: 42, value: 1 },
-      { time: '09:49', t: 49, value: 0 }, { time: '11:16', t: 136, value: 1 },
-      { time: '11:22', t: 142, value: 0 }, { time: '12:38', t: 218, value: 1 },
-      { time: '12:43', t: 223, value: 0 }, { time: '14:48', t: 348, value: 1 },
-      { time: '14:50', t: 350, value: 0 }, { time: '15:00', t: 360, value: 0 },
-    ],
-    ticks: [
-      { time: '09:00', t: 0 }, { time: '10:00', t: 60 }, { time: '11:00', t: 120 },
-      { time: '12:00', t: 180 }, { time: '13:00', t: 240 }, { time: '14:00', t: 300 },
-      { time: '15:00', t: 360 },
-    ],
-  },
-  '24H': {
-    duration: 1440,
-    readings: [
-      { time: '어제 15시', t: 0, value: 0 }, { time: '어제 18시', t: 180, value: 1 },
-      { time: '18:12', t: 192, value: 0 }, { time: '22:05', t: 425, value: 1 },
-      { time: '22:11', t: 431, value: 0 }, { time: '오늘 07:32', t: 992, value: 1 },
-      { time: '07:40', t: 1000, value: 0 }, { time: '14:48', t: 1428, value: 1 },
-      { time: '14:50', t: 1430, value: 0 }, { time: '현재', t: 1440, value: 0 },
-    ],
-    ticks: [
-      { time: '어제 15시', t: 0 }, { time: '19시', t: 240 }, { time: '23시', t: 480 },
-      { time: '03시', t: 720 }, { time: '07시', t: 960 }, { time: '11시', t: 1200 },
-      { time: '현재', t: 1440 },
-    ],
-  },
-}
-
-const summaries: Record<Range, [string, string][]> = {
-  '1H': [['구간 내 감지 횟수', '3회'], ['총 감지 시간', '7분'], ['감지 비율', '12.7%'], ['마지막 감지', '14:48']],
-  '6H': [['구간 내 감지 횟수', '4회'], ['총 감지 시간', '20분'], ['감지 비율', '5.6%'], ['마지막 감지', '14:48']],
-  '24H': [['구간 내 감지 횟수', '4회'], ['총 감지 시간', '28분'], ['감지 비율', '1.9%'], ['마지막 감지', '14:48']],
-}
-
-const events = [
-  { time: '14:55:18', title: '상태 갱신', detail: '비감지 상태 유지 중', status: '정상' },
-  { time: '14:50:21', title: '감지 종료', detail: '지속 시간 2분 19초', status: '정상' },
-  { time: '14:48:02', title: '움직임 감지', detail: '감지 범위 내 움직임 발생', status: '감지' },
-  { time: '14:33:10', title: '감지 종료', detail: '지속 시간 2분 26초', status: '정상' },
-]
 
 function MotionChart({ data }: { data: RangeData }) {
   const [hovered, setHovered] = useState<number | null>(null)
@@ -221,6 +157,13 @@ export default function App() {
   const readings = useReadings()
   const last = readings.samples[readings.samples.length - 1]
   const detected = last ? last.value > 0 : IS_MOTION_DETECTED
+  const { runs, now } = readings
+  const lastRun = runs[runs.length - 1]
+  const rangeData = useMemo(() => buildRangeData(range, runs, now), [range, runs, now])
+  const summary = useMemo(() => summarize(range, runs, now), [range, runs, now])
+  const events = useMemo(() => recentEvents(runs, detected), [runs, detected])
+  const todayCount = runs.filter(r => r.end > startOfToday(now)).length
+  const receiving = !!last && now - last.time < 10_000
 
   return (
     <main>
@@ -232,7 +175,7 @@ export default function App() {
           </span>
         </div>
         <h1>공간의 움직임을<br /><span>실시간으로 감지하다</span></h1>
-        <p>PIR-01 센서의 움직임 감지 여부와 발생 기록을 한눈에 확인합니다. 현재 화면은 디지털 HIGH·LOW 예시 데이터로 구성되어 있습니다.</p>
+        <p>PIR-01 센서의 움직임 감지 여부와 발생 기록을 한눈에 확인합니다. 화면의 값은 Supabase에 저장된 센서 데이터로 실시간 갱신됩니다.</p>
       </header>
 
       <section className="current-grid" aria-label="현재 PIR 센서 상태">
@@ -255,9 +198,17 @@ export default function App() {
         </article>
         <div className="kpis">
           {[
-            ['마지막 감지 시각', '14:48:02', '2분 전'],
-            ['오늘 감지 횟수', '18회', '오전 0시 기준'],
-            ['연속 비감지 시간', '07분', '현재 대기 중'],
+            detected
+              ? ['마지막 감지 시각', clockSec(now), '감지 중']
+              : lastRun
+                ? ['마지막 감지 시각', clockSec(lastRun.end), ago(lastRun.end, now)]
+                : ['마지막 감지 시각', '없음', '최근 24시간 기준'],
+            ['오늘 감지 횟수', `${todayCount}회`, '오전 0시 기준'],
+            detected
+              ? ['연속 비감지 시간', '0초', '감지 중']
+              : lastRun
+                ? ['연속 비감지 시간', formatDuration(now - lastRun.end), '현재 대기 중']
+                : ['연속 비감지 시간', '24시간 이상', '현재 대기 중'],
             ['감지 유지 시간', '5초', '센서 설정값'],
           ].map(([label, value, note]) => (
             <article className="kpi" key={label}>
@@ -267,6 +218,7 @@ export default function App() {
         </div>
       </section>
 
+      {readings.runsError && <p className="serial-error-box">감지 기록 조회 오류: {readings.runsError}</p>}
       {readings.error && <p className="serial-error-box">DB 오류: {readings.error}</p>}
       {!readings.enabled && <p className="serial-error-box">.env의 Supabase 설정을 찾지 못했습니다.</p>}
 
@@ -295,9 +247,9 @@ export default function App() {
         <div className="chart-legend">
           <span><i className="legend-object" /> 감지 구간</span>
         </div>
-        <MotionChart data={rangeData[range]} />
+        <MotionChart data={rangeData} />
         <div className="chart-summary">
-          {summaries[range].map(([label, value]) => (
+          {summary.map(([label, value]) => (
             <div key={label}><span>{label}</span><strong>{value}</strong></div>
           ))}
         </div>
@@ -314,17 +266,18 @@ export default function App() {
             <div><dt>장치 ID</dt><dd>PIR-01-A204</dd></div>
             <div><dt>센서 모델</dt><dd>HC-SR501</dd></div>
             <div><dt>출력 방식</dt><dd>디지털 HIGH·LOW</dd></div>
-            <div><dt>마지막 동기화</dt><dd>14:55:18</dd></div>
-            <div><dt>동작 상태</dt><dd className="accent-text">정상</dd></div>
+            <div><dt>마지막 동기화</dt><dd>{last ? clockSec(last.time) : '없음'}</dd></div>
+            <div><dt>동작 상태</dt><dd className={receiving ? 'accent-text' : ''}>{receiving ? '정상' : '수신 없음'}</dd></div>
           </dl>
         </article>
 
         <article className="card event-card">
           <SectionHead index="03 · 최근 활동" title="최근 감지 기록" note="최근 발생한 감지 및 상태 변경 이벤트입니다." />
           <div className="event-list">
+            {events.length === 0 && <p className="serial-error">최근 24시간 감지 기록이 없습니다.</p>}
             {events.map(event => (
-              <div className="event-row" key={event.time}>
-                <time>{event.time}</time>
+              <div className="event-row" key={`${event.time}-${event.title}`}>
+                <time>{event.label}</time>
                 <div><strong>{event.title}</strong><span>{event.detail}</span></div>
                 <em className={event.status === '감지' ? 'detected-badge' : ''}>{event.status}</em>
               </div>
@@ -334,8 +287,8 @@ export default function App() {
       </section>
 
       <footer>
-        <p>PIR-01 모션 센서 모니터링 대시보드 · 예시 데이터</p>
-        <span>실제 센서 연결 시 감지 상태와 기록이 자동으로 갱신됩니다.</span>
+        <p>PIR-01 모션 센서 모니터링 대시보드</p>
+        <span>센서 값은 Supabase readings 테이블 기준이며, 감지 기록은 최근 24시간을 10초마다 새로 불러옵니다.</span>
       </footer>
     </main>
   )
