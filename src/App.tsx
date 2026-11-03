@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { MAX_SAMPLES, useSerial, type Sample } from './useSerial'
 
 const ACCENT = '#FF8A3D'
 const IS_MOTION_DETECTED = false
@@ -83,7 +84,7 @@ function MotionChart({ data }: { data: RangeData }) {
   return (
     <div className="chart-wrap">
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="시간대별 PIR 움직임 감지 기록">
-        {[1, 0].map(value => (
+        {([1, 0] as const).map(value => (
           <g key={value}>
             <line className="grid" x1={pad.left} x2={width - pad.right} y1={y(value)} y2={y(value)} />
             <text className="motion-axis" x={pad.left - 16} y={y(value) + 4} textAnchor="end">
@@ -146,6 +147,66 @@ function MotionChart({ data }: { data: RangeData }) {
   )
 }
 
+function LiveChart({ samples }: { samples: Sample[] }) {
+  const [hovered, setHovered] = useState<number | null>(null)
+  const width = 980
+  const height = 300
+  const pad = { left: 56, right: 28, top: 24, bottom: 32 }
+  const values = samples.map(s => s.value)
+  const min = Math.min(0, ...values)
+  const max = Math.max(1, ...values)
+  const x = (i: number) => pad.left + (i / (MAX_SAMPLES - 1)) * (width - pad.left - pad.right)
+  const y = (v: number) => pad.top + (1 - (v - min) / (max - min)) * (height - pad.top - pad.bottom)
+  const points = samples.map((s, i) => `${x(i)},${y(s.value)}`).join(' ')
+  const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1))
+
+  return (
+    <div className="chart-wrap">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="최근 100개 시리얼 값 선 그래프">
+        {[max, (max + min) / 2, min].map(v => (
+          <g key={v}>
+            <line className="grid" x1={pad.left} x2={width - pad.right} y1={y(v)} y2={y(v)} />
+            <text className="motion-axis" x={pad.left - 12} y={y(v) + 4} textAnchor="end">{fmt(v)}</text>
+          </g>
+        ))}
+        {samples.length === 0 && (
+          <text className="axis" x={width / 2} y={height / 2} textAnchor="middle">
+            「시리얼 연결」 후 값이 들어오면 여기에 표시됩니다.
+          </text>
+        )}
+        {samples.length > 1 && <polyline className="live-line" points={points} />}
+        {samples.length > 0 && (
+          <circle className="last-point" cx={x(samples.length - 1)} cy={y(samples[samples.length - 1].value)} r="5" />
+        )}
+        {samples.map((s, i) => (
+          <rect
+            key={s.id}
+            className="hit-area"
+            x={x(i) - 4}
+            y={pad.top}
+            width={8}
+            height={height - pad.top - pad.bottom}
+            onMouseEnter={() => setHovered(i)}
+            onMouseLeave={() => setHovered(null)}
+          />
+        ))}
+        {hovered !== null && samples[hovered] && (
+          <line className="hover-line" x1={x(hovered)} x2={x(hovered)} y1={pad.top} y2={height - pad.bottom} />
+        )}
+      </svg>
+      {hovered !== null && samples[hovered] && (
+        <div
+          className="tooltip"
+          style={{ left: `${(x(hovered) / width) * 100}%`, top: `${(y(samples[hovered].value) / height) * 100}%` }}
+        >
+          <strong>{new Date(samples[hovered].time).toLocaleTimeString('ko-KR', { hour12: false })}</strong>
+          <span>값 {fmt(samples[hovered].value)}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SectionHead({ index, title, note, right }: { index: string; title: string; note: string; right?: React.ReactNode }) {
   return (
     <div className="section-head">
@@ -157,30 +218,49 @@ function SectionHead({ index, title, note, right }: { index: string; title: stri
 
 export default function App() {
   const [range, setRange] = useState<Range>('1H')
+  const serial = useSerial()
+  const last = serial.samples[serial.samples.length - 1]
+  const detected = serial.connected && last ? last.value > 0 : IS_MOTION_DETECTED
 
   return (
     <main>
       <header className="hero">
         <div className="topline">
           <p className="kicker">PIR 모션 센서 · 실시간 모니터링</p>
-          <span className="online"><i /> 센서 연결됨</span>
+          <div className="serial-bar">
+            {serial.supported ? (
+              <button
+                className={`serial-btn ${serial.connected ? 'connected' : ''}`}
+                onClick={serial.connected ? serial.disconnect : serial.connect}
+              >
+                {serial.connected ? '연결 해제' : '시리얼 연결'}
+              </button>
+            ) : (
+              <span className="serial-error">이 브라우저는 Web Serial을 지원하지 않습니다 (Chrome/Edge 사용)</span>
+            )}
+            <span className="online"><i className={serial.connected ? '' : 'off'} /> {serial.connected ? '센서 연결됨' : '연결 안 됨'}</span>
+          </div>
         </div>
         <h1>공간의 움직임을<br /><span>실시간으로 감지하다</span></h1>
         <p>PIR-01 센서의 움직임 감지 여부와 발생 기록을 한눈에 확인합니다. 현재 화면은 디지털 HIGH·LOW 예시 데이터로 구성되어 있습니다.</p>
       </header>
 
       <section className="current-grid" aria-label="현재 PIR 센서 상태">
-        <article className={`primary-reading ${IS_MOTION_DETECTED ? 'detected' : 'idle'}`}>
+        <article className={`primary-reading ${detected ? 'detected' : 'idle'}`}>
           <div className="reading-head">
             <p>현재 감지 상태</p>
             <span>LIVE</span>
           </div>
-          <div className={`motion-state ${IS_MOTION_DETECTED ? 'detected' : 'idle'}`}>
-            {IS_MOTION_DETECTED ? '감지됨' : '비감지'}
+          <div className={`motion-state ${detected ? 'detected' : 'idle'}`}>
+            {detected ? '감지됨' : '비감지'}
           </div>
           <div className="reading-foot">
-            <span><i className={`pulse ${IS_MOTION_DETECTED ? 'detected' : ''}`} /> {IS_MOTION_DETECTED ? '움직임 감지 중' : '대기 중'}</span>
-            <span>방금 전 업데이트</span>
+            <span><i className={`pulse ${detected ? 'detected' : ''}`} /> {detected ? '움직임 감지 중' : '대기 중'}</span>
+            <span>
+              {serial.connected && last
+                ? `수신값 ${last.value} · ${new Date(last.time).toLocaleTimeString('ko-KR', { hour12: false })}`
+                : '방금 전 업데이트'}
+            </span>
           </div>
         </article>
         <div className="kpis">
@@ -195,6 +275,18 @@ export default function App() {
             </article>
           ))}
         </div>
+      </section>
+
+      {serial.error && <p className="serial-error-box">시리얼 오류: {serial.error}</p>}
+      {serial.dbError && <p className="serial-error-box">DB 오류: {serial.dbError}</p>}
+
+      <section className="card">
+        <SectionHead
+          index="LIVE · 시리얼 수신"
+          title="실시간 시리얼 값"
+          note={`아두이노에서 한 줄씩 들어오는 값 중 최근 ${MAX_SAMPLES}개를 표시합니다. ${serial.dbEnabled ? 'Supabase readings 테이블에 저장되며, 새로고침하면 저장된 최근 값을 다시 불러옵니다.' : 'Supabase 설정이 없어 저장되지 않습니다.'}`}
+        />
+        <LiveChart samples={serial.samples} />
       </section>
 
       <section className="card">
@@ -224,7 +316,7 @@ export default function App() {
       <section className="detail-grid">
         <article className="card status-card">
           <SectionHead index="02 · 센서 상태" title="센서 상태" note="PIR 모션 센서의 현재 동작 정보입니다." />
-          <div className={`sensor-visual ${IS_MOTION_DETECTED ? 'detecting' : 'dormant'}`} aria-hidden="true">
+          <div className={`sensor-visual ${detected ? 'detecting' : 'dormant'}`} aria-hidden="true">
             <div className="beam beam-one" /><div className="beam beam-two" /><div className="beam beam-three" />
             <div className="sensor-core"><i /></div>
           </div>

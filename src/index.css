@@ -141,3 +141,12 @@ footer span { color: #555; }
   .chart-legend { justify-content: flex-start; }
   .event-row { grid-template-columns: 62px 1fr auto; gap: 10px; }
 }
+
+.serial-bar { display: flex; align-items: center; gap: 16px; }
+.serial-btn { border: 1px solid #ff8a3d; background: #ff8a3d; color: #0a0a0a; font-size: 12px; font-weight: 800; padding: 9px 16px; border-radius: 8px; cursor: pointer; transition: .2s ease; }
+.serial-btn.connected { background: transparent; color: #ff8a3d; }
+.serial-error, .serial-error-box { color: #ff8a3d; font-size: 12px; }
+.serial-error-box { margin-bottom: 20px; }
+.online i.off { background: #626262; box-shadow: none; }
+.live-line { fill: none; stroke: #ff8a3d; stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+@media (max-width: 480px) { .topline { flex-direction: column; gap: 14px; } }
