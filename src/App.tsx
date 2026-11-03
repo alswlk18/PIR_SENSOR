@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { MAX_SAMPLES, useReadings, type Sample } from './useReadings'
 import {
-  ago, buildRangeData, clockSec, formatDuration, recentEvents, startOfToday, summarize,
+  ago, buildRangeData, clockSec, detectionStreak, formatDuration, recentEvents, startOfToday, summarize,
   type Range, type RangeData,
 } from './analytics'
 
@@ -162,6 +162,7 @@ export default function App() {
   const rangeData = useMemo(() => buildRangeData(range, runs, now), [range, runs, now])
   const summary = useMemo(() => summarize(range, runs, now), [range, runs, now])
   const events = useMemo(() => recentEvents(runs, detected), [runs, detected])
+  const streakMs = detectionStreak(readings.samples, runs, now)
   const todayCount = runs.filter(r => r.end > startOfToday(now)).length
   const receiving = !!last && now - last.time < 10_000
 
@@ -209,7 +210,7 @@ export default function App() {
               : lastRun
                 ? ['연속 비감지 시간', formatDuration(now - lastRun.end), '현재 대기 중']
                 : ['연속 비감지 시간', '24시간 이상', '현재 대기 중'],
-            ['감지 유지 시간', '5초', '센서 설정값'],
+            ['연속 감지 시간', detected ? formatDuration(streakMs) : '0초', detected ? '현재 감지 중' : '대기 중'],
           ].map(([label, value, note]) => (
             <article className="kpi" key={label}>
               <p>{label}</p><strong>{value}</strong><span>{note}</span>

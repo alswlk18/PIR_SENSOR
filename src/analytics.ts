@@ -86,3 +86,18 @@ export function startOfToday(now: number): number {
   d.setHours(0, 0, 0, 0)
   return d.getTime()
 }
+
+// 현재 감지가 이어진 시간(ms). 감지 중이 아니면 0.
+// 최근 감지 구간이 지금까지 이어지고 있으면 그 시작 시각을, 아니면 최근 값의 연속 구간 시작을 쓴다.
+export function detectionStreak(samples: { time: number; value: number }[], runs: Run[], now: number): number {
+  const last = samples[samples.length - 1]
+  if (!last || last.value <= 0) return 0
+  const lastRun = runs[runs.length - 1]
+  let start = last.time
+  if (lastRun && lastRun.end >= last.time - 6000) {
+    start = lastRun.start
+  } else {
+    for (let i = samples.length - 1; i >= 0 && samples[i].value > 0; i--) start = samples[i].time
+  }
+  return Math.max(0, now - start)
+}
