@@ -1,296 +1,59 @@
-import { useMemo, useState } from 'react'
-import { MAX_SAMPLES, useReadings, type Sample } from './useReadings'
+import { useEffect, useState } from 'react'
+import { ConnectionControl } from './components/ConnectionControl'
+import { PowerToggle } from './components/PowerToggle'
+import { ProductHeader } from './components/ProductHeader'
+import { SensorChart } from './components/SensorChart'
+import { SensorMoon } from './components/SensorMoon'
 import {
-  ago, buildRangeData, clockSec, detectionStreak, formatDuration, recentEvents, startOfToday, summarize,
-  type Range, type RangeData,
-} from './analytics'
-
-const ACCENT = '#FF8A3D'
-const IS_MOTION_DETECTED = false
-
-function MotionChart({ data }: { data: RangeData }) {
-  const [hovered, setHovered] = useState<number | null>(null)
-  const width = 980
-  const height = 340
-  const pad = { left: 92, right: 28, top: 48, bottom: 46 }
-  const chartHeight = height - pad.top - pad.bottom
-  const x = (t: number) => pad.left + (t / data.duration) * (width - pad.left - pad.right)
-  const y = (value: 0 | 1) => value ? pad.top + 20 : pad.top + chartHeight - 20
-
-  return (
-    <div className="chart-wrap">
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="시간대별 PIR 움직임 감지 기록">
-        {([1, 0] as const).map(value => (
-          <g key={value}>
-            <line className="grid" x1={pad.left} x2={width - pad.right} y1={y(value)} y2={y(value)} />
-            <text className="motion-axis" x={pad.left - 16} y={y(value) + 4} textAnchor="end">
-              {value ? '감지(1)' : '비감지(0)'}
-            </text>
-          </g>
-        ))}
-
-        {data.readings.slice(0, -1).map((item, i) => {
-          const next = data.readings[i + 1]
-          const x1 = x(item.t)
-          const x2 = x(next.t)
-          return (
-            <g key={`${item.time}-${next.time}`}>
-              {item.value === 1 && <rect className="detected-area" x={x1} y={y(1)} width={x2 - x1} height={y(0) - y(1)} />}
-              <line className={item.value ? 'detected-segment' : 'idle-segment'} x1={x1} x2={x2} y1={y(item.value)} y2={y(item.value)} />
-              {item.value !== next.value && (
-                <line className={next.value ? 'detected-segment' : 'transition-segment'} x1={x2} x2={x2} y1={y(item.value)} y2={y(next.value)} />
-              )}
-              <rect
-                className="hit-area"
-                x={x1}
-                y={pad.top}
-                width={Math.max(8, x2 - x1)}
-                height={chartHeight}
-                onMouseEnter={() => setHovered(i)}
-                onMouseLeave={() => setHovered(null)}
-              />
-            </g>
-          )
-        })}
-
-        {data.ticks.map(tick => (
-          <text className="axis" x={x(tick.t)} y={height - 13} textAnchor="middle" key={tick.time}>{tick.time}</text>
-        ))}
-
-        <circle
-          className="last-point idle-point"
-          cx={x(data.duration)}
-          cy={y(data.readings[data.readings.length - 1].value)}
-          r="6"
-        />
-        {hovered !== null && (
-          <line className="hover-line" x1={x(data.readings[hovered].t)} x2={x(data.readings[hovered].t)} y1={pad.top} y2={y(0)} />
-        )}
-      </svg>
-      {hovered !== null && (
-        <div
-          className="tooltip"
-          style={{
-            left: `${(x(data.readings[hovered].t) / width) * 100}%`,
-            top: `${(y(data.readings[hovered].value) / height) * 100}%`,
-          }}
-        >
-          <strong>{data.readings[hovered].time}</strong>
-          <span>{data.readings[hovered].value ? '움직임 감지됨 · HIGH(1)' : '움직임 비감지 · LOW(0)'}</span>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function LiveChart({ samples }: { samples: Sample[] }) {
-  const [hovered, setHovered] = useState<number | null>(null)
-  const width = 980
-  const height = 300
-  const pad = { left: 56, right: 28, top: 24, bottom: 32 }
-  const values = samples.map(s => s.value)
-  const min = Math.min(0, ...values)
-  const max = Math.max(1, ...values)
-  const x = (i: number) => pad.left + (i / (MAX_SAMPLES - 1)) * (width - pad.left - pad.right)
-  const y = (v: number) => pad.top + (1 - (v - min) / (max - min)) * (height - pad.top - pad.bottom)
-  const points = samples.map((s, i) => `${x(i)},${y(s.value)}`).join(' ')
-  const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1))
-
-  return (
-    <div className="chart-wrap">
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="최근 100개 센서 값 선 그래프">
-        {[max, (max + min) / 2, min].map(v => (
-          <g key={v}>
-            <line className="grid" x1={pad.left} x2={width - pad.right} y1={y(v)} y2={y(v)} />
-            <text className="motion-axis" x={pad.left - 12} y={y(v) + 4} textAnchor="end">{fmt(v)}</text>
-          </g>
-        ))}
-        {samples.length === 0 && (
-          <text className="axis" x={width / 2} y={height / 2} textAnchor="middle">
-            센서 값이 들어오면 여기에 표시됩니다.
-          </text>
-        )}
-        {samples.length > 1 && <polyline className="live-line" points={points} />}
-        {samples.length > 0 && (
-          <circle className="last-point" cx={x(samples.length - 1)} cy={y(samples[samples.length - 1].value)} r="5" />
-        )}
-        {samples.map((s, i) => (
-          <rect
-            key={s.id}
-            className="hit-area"
-            x={x(i) - 4}
-            y={pad.top}
-            width={8}
-            height={height - pad.top - pad.bottom}
-            onMouseEnter={() => setHovered(i)}
-            onMouseLeave={() => setHovered(null)}
-          />
-        ))}
-        {hovered !== null && samples[hovered] && (
-          <line className="hover-line" x1={x(hovered)} x2={x(hovered)} y1={pad.top} y2={height - pad.bottom} />
-        )}
-      </svg>
-      {hovered !== null && samples[hovered] && (
-        <div
-          className="tooltip"
-          style={{ left: `${(x(hovered) / width) * 100}%`, top: `${(y(samples[hovered].value) / height) * 100}%` }}
-        >
-          <strong>{new Date(samples[hovered].time).toLocaleTimeString('ko-KR', { hour12: false })}</strong>
-          <span>값 {fmt(samples[hovered].value)}</span>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function SectionHead({ index, title, note, right }: { index: string; title: string; note: string; right?: React.ReactNode }) {
-  return (
-    <div className="section-head">
-      <div><span className="eyebrow">{index}</span><h2>{title}</h2><p>{note}</p></div>
-      {right && <div className="controls">{right}</div>}
-    </div>
-  )
-}
+  connectSensor,
+  disconnectSensor,
+  loadPower,
+  type Reading,
+  type Status,
+} from './lib/device'
+import { DEMO_MODE } from './lib/supabase'
+import { MAX_POINTS } from './product'
 
 export default function App() {
-  const [range, setRange] = useState<Range>('1H')
-  const readings = useReadings()
-  const last = readings.samples[readings.samples.length - 1]
-  const detected = last ? last.value > 0 : IS_MOTION_DETECTED
-  const { runs, now } = readings
-  const lastRun = runs[runs.length - 1]
-  const rangeData = useMemo(() => buildRangeData(range, runs, now), [range, runs, now])
-  const summary = useMemo(() => summarize(range, runs, now), [range, runs, now])
-  const events = useMemo(() => recentEvents(runs, detected), [runs, detected])
-  const streakMs = detectionStreak(readings.samples, runs, now)
-  const todayCount = runs.filter(r => r.end > startOfToday(now)).length
-  const receiving = !!last && now - last.time < 10_000
+  const [status, setStatus] = useState<Status>('disconnected')
+  const [power, setPower] = useState(false)
+  const [readings, setReadings] = useState<Reading[]>([])
+
+  useEffect(() => {
+    void loadPower().then(setPower)
+    return () => {
+      void disconnectSensor()
+    }
+  }, [])
+
+  const handleConnect = () => {
+    void connectSensor({
+      onInit: setReadings,
+      onReading: reading => setReadings(previous => [...previous, reading].slice(-MAX_POINTS)),
+      onStatus: setStatus,
+    })
+  }
+
+  const handleDisconnect = () => {
+    void disconnectSensor().then(() => setStatus('disconnected'))
+  }
 
   return (
     <main>
-      <header className="hero">
-        <div className="topline">
-          <p className="kicker">PIR 모션 센서 · 실시간 모니터링</p>
-          <span className="online">
-            <i className={readings.live ? '' : 'off'} /> {readings.live ? '실시간 구독 중' : '연결 안 됨'}
-          </span>
-        </div>
-        <h1>공간의 움직임을<br /><span>실시간으로 감지하다</span></h1>
-        <p>PIR-01 센서의 움직임 감지 여부와 발생 기록을 한눈에 확인합니다. 화면의 값은 Supabase에 저장된 센서 데이터로 실시간 갱신됩니다.</p>
-      </header>
-
-      <section className="current-grid" aria-label="현재 PIR 센서 상태">
-        <article className={`primary-reading ${detected ? 'detected' : 'idle'}`}>
-          <div className="reading-head">
-            <p>현재 감지 상태</p>
-            <span>LIVE</span>
-          </div>
-          <div className={`motion-state ${detected ? 'detected' : 'idle'}`}>
-            {detected ? '감지됨' : '비감지'}
-          </div>
-          <div className="reading-foot">
-            <span><i className={`pulse ${detected ? 'detected' : ''}`} /> {detected ? '움직임 감지 중' : '대기 중'}</span>
-            <span>
-              {last
-                ? `수신값 ${last.value} · ${new Date(last.time).toLocaleTimeString('ko-KR', { hour12: false })}`
-                : '데이터 없음'}
-            </span>
-          </div>
-        </article>
-        <div className="kpis">
-          {[
-            detected
-              ? ['마지막 감지 시각', clockSec(now), '감지 중']
-              : lastRun
-                ? ['마지막 감지 시각', clockSec(lastRun.end), ago(lastRun.end, now)]
-                : ['마지막 감지 시각', '없음', '최근 24시간 기준'],
-            ['오늘 감지 횟수', `${todayCount}회`, '오전 0시 기준'],
-            detected
-              ? ['연속 비감지 시간', '0초', '감지 중']
-              : lastRun
-                ? ['연속 비감지 시간', formatDuration(now - lastRun.end), '현재 대기 중']
-                : ['연속 비감지 시간', '24시간 이상', '현재 대기 중'],
-            ['연속 감지 시간', detected ? formatDuration(streakMs) : '0초', detected ? '현재 감지 중' : '대기 중'],
-          ].map(([label, value, note]) => (
-            <article className="kpi" key={label}>
-              <p>{label}</p><strong>{value}</strong><span>{note}</span>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      {readings.runsError && <p className="serial-error-box">감지 기록 조회 오류: {readings.runsError}</p>}
-      {readings.error && <p className="serial-error-box">DB 오류: {readings.error}</p>}
-      {!readings.enabled && <p className="serial-error-box">.env의 Supabase 설정을 찾지 못했습니다.</p>}
-
-      <section className="card">
-        <SectionHead
-          index="LIVE · 센서 값"
-          title="실시간 센서 값"
-          note={`Supabase readings 테이블의 최근 ${MAX_SAMPLES}개 값입니다. 새 행이 들어오면 Realtime으로 바로 갱신됩니다.`}
-        />
-        <LiveChart samples={readings.samples} />
-      </section>
-
-      <section className="card">
-        <SectionHead
-          index="01 · 감지 기록"
-          title="시간에 따른 감지 기록"
-          note="디지털 출력값 1은 움직임 감지, 0은 비감지 상태를 의미합니다."
-          right={
-            <div className="range-toggle" aria-label="조회 기간">
-              {(['1H', '6H', '24H'] as Range[]).map(item => (
-                <button key={item} className={range === item ? 'active' : ''} onClick={() => setRange(item)}>{item}</button>
-              ))}
-            </div>
-          }
-        />
-        <div className="chart-legend">
-          <span><i className="legend-object" /> 감지 구간</span>
-        </div>
-        <MotionChart data={rangeData} />
-        <div className="chart-summary">
-          {summary.map(([label, value]) => (
-            <div key={label}><span>{label}</span><strong>{value}</strong></div>
-          ))}
-        </div>
-      </section>
-
-      <section className="detail-grid">
-        <article className="card status-card">
-          <SectionHead index="02 · 센서 상태" title="센서 상태" note="PIR 모션 센서의 현재 동작 정보입니다." />
-          <div className={`sensor-visual ${detected ? 'detecting' : 'dormant'}`} aria-hidden="true">
-            <div className="beam beam-one" /><div className="beam beam-two" /><div className="beam beam-three" />
-            <div className="sensor-core"><i /></div>
-          </div>
-          <dl className="status-list">
-            <div><dt>장치 ID</dt><dd>PIR-01-A204</dd></div>
-            <div><dt>센서 모델</dt><dd>HC-SR501</dd></div>
-            <div><dt>출력 방식</dt><dd>디지털 HIGH·LOW</dd></div>
-            <div><dt>마지막 동기화</dt><dd>{last ? clockSec(last.time) : '없음'}</dd></div>
-            <div><dt>동작 상태</dt><dd className={receiving ? 'accent-text' : ''}>{receiving ? '정상' : '수신 없음'}</dd></div>
-          </dl>
-        </article>
-
-        <article className="card event-card">
-          <SectionHead index="03 · 최근 활동" title="최근 감지 기록" note="최근 발생한 감지 및 상태 변경 이벤트입니다." />
-          <div className="event-list">
-            {events.length === 0 && <p className="serial-error">최근 24시간 감지 기록이 없습니다.</p>}
-            {events.map(event => (
-              <div className="event-row" key={`${event.time}-${event.title}`}>
-                <time>{event.label}</time>
-                <div><strong>{event.title}</strong><span>{event.detail}</span></div>
-                <em className={event.status === '감지' ? 'detected-badge' : ''}>{event.status}</em>
-              </div>
-            ))}
-          </div>
-        </article>
-      </section>
-
-      <footer>
-        <p>PIR-01 모션 센서 모니터링 대시보드</p>
-        <span>센서 값은 Supabase readings 테이블 기준이며, 감지 기록은 최근 24시간을 10초마다 새로 불러옵니다.</span>
-      </footer>
+      <ProductHeader />
+      {DEMO_MODE && <p className="t-caption demo-note">데모 데이터로 표시 중</p>}
+      <SensorMoon value={readings.at(-1)?.value} power={power} />
+      <div className="lower-grid">
+        <section className="controls-section" aria-label="조명 제어">
+          <ConnectionControl
+            onConnect={handleConnect}
+            onDisconnect={handleDisconnect}
+            status={status}
+          />
+          <PowerToggle onChange={setPower} power={power} />
+        </section>
+        <SensorChart readings={readings} />
+      </div>
     </main>
   )
 }
